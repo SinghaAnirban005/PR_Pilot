@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model CodeChunk {
+  id            String    @id   @default(uuid())
+  repoId        String
+  filePath      String
+  content       String
+
+  embedding     Unsupported("vector(1024)")
+
+  metadata      Json  @default("{}")
+
+  createdAt     DateTime    @default(now())   @db.Timestamptz()
+  updatedAt     DateTime    @updatedAt      @db.Timestamptz()
+
+  contentHash   String    @db.Text
+}
+
+enum PrReviewStatus {
+  pending
+  succeeded
+  failed
+}
+
+model PrReviewRun {
+  id      String    @id   @default(uuid())
+  repoId  String
+  prNumber  Int
+  status    PrReviewStatus
+  retryCount  Int   @default(0)
+  
+  validationErrors  Json    @default("[]")
+
+  createdAt     DateTime    @default(now())   @db.Timestamptz()
+  completedAt   DateTime?    @db.Timestamptz()
+
+}
