@@ -9,6 +9,14 @@ const app: Express = express()
 app.use(createNodeMiddleware(webhooks, {path: '/api/github/webhooks'}))
 app.use(express.json())
 
+webhooks.on(["pull_request.opened", "pull_request.synchronize"], ({ payload }) => {
+    
+})
+
+webhooks.onError((err: unknown) => {
+    console.error('webhook error : ', err)
+})
+
 app.use('/api/v1/inngest', () => {
 
 })
