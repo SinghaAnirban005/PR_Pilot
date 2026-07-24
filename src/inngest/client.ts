@@ -10,11 +10,11 @@ type repoIngest = {
       ref?: string | undefined;
 };
 
-const prAnalyzed = eventType('github/pr.analyzed', {
+export const prAnalyzed = eventType('github/pr.analyzed', {
     schema: staticSchema<PullRequestDetails>()
 })
 
-const repoIngestionReq = eventType('github/repo.ingestion-requested', {
+export const repoIngestionReq = eventType('github/repo.ingestion-requested', {
     schema: staticSchema<repoIngest>()
 })
 
