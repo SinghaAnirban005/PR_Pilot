@@ -19,6 +19,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@ast-grep/napi": "^0.45.0",
     "@huggingface/inference": "^4.13.23",
     "@langchain/core": "^1.2.3",
     "@langchain/langgraph": "^1.4.8",
