@@ -1,4 +1,5 @@
 import { inngest } from "./client.js";
+import { getDiffGraphWorkflow } from "../graph/workflow.js";
 import { prAnalyzed, repoIngestionReq } from "./client.js";
 
 export const analyzePullRequest = inngest.createFunction(
@@ -36,7 +37,6 @@ export const analyzePullRequest = inngest.createFunction(
     };
   }
 );
-
 
 export const ingestRepository = inngest.createFunction(
     {
