@@ -9,7 +9,7 @@
     "dev": "node --loader ts-node/esm --watch src/server.ts",
     "typecheck": "tsc --noEmit",
     "migrate": "node --loader ts-node/esm src/db/migrate.ts",
-    "ingest": "node --loader ts-node/esm src/scripts/ingestRepo.ts"
+    "ingest": "tsx src/scripts/ingestRepo.ts"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +21,8 @@
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "prisma": "^7.9.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.1",
     "typescript": "^7.0.2"
   },
   "dependencies": {

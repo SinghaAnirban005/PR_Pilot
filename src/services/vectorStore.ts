@@ -29,7 +29,7 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
         const metadataJson = JSON.stringify(chunk.metadata ?? {});
 
         const rowCount = await tx.$executeRaw`
-          INSERT INTO code_chunks (id, repo_id, file_path, content, embedding, metadata)
+          INSERT INTO CodeChunk (id, repo_id, file_path, content, embedding, metadata)
           VALUES (
             gen_random_uuid(),
             ${chunk.repoId},
@@ -86,7 +86,7 @@ export async function searchSimilarChunks(
         content,
         metadata,
         embedding <=> ${vectorLiteral}::vector AS distance
-      FROM code_chunks
+      FROM CodeChunk
       WHERE repo_id = ${repoId}
       ${pathFilter}
       ORDER BY embedding <=> ${vectorLiteral}::vector ASC
