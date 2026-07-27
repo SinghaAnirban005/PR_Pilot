@@ -29,20 +29,30 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
         const metadataJson = JSON.stringify(chunk.metadata ?? {});
 
         const rowCount = await tx.$executeRaw`
-          INSERT INTO CodeChunk (id, repo_id, file_path, content, embedding, metadata)
+          INSERT INTO "CodeChunk" (
+            "id", 
+            "repoId", 
+            "filePath", 
+            "content", 
+            "contentHash", 
+            "embedding", 
+            "metadata", 
+            "updatedAt"
+          )
           VALUES (
             gen_random_uuid(),
             ${chunk.repoId},
             ${chunk.filePath},
             ${chunk.content},
             ${vectorLiteral}::vector,
-            ${metadataJson}::jsonb
+            ${metadataJson}::jsonb,
+            now()
           )
           ON CONFLICT ON CONSTRAINT uq_code_chunks_repo_file_hash
           DO UPDATE SET
-            embedding = EXCLUDED.embedding,
-            metadata = EXCLUDED.metadata,
-            updated_at = now()
+            "embedding" = EXCLUDED."embedding",
+            "metadata" = EXCLUDED."metadata",
+            "updatedAt" = now()
         `;
 
         count += rowCount;
@@ -72,24 +82,23 @@ export async function searchSimilarChunks(
   const topK = options.topK ?? env.VECTOR_TOP_K;
   const vectorLiteral = toVectorLiteral(queryEmbedding);
 
-  // Dynamic filter fragment using Prisma.sql to prevent SQL injection
   const pathFilter = filePathPrefix
-    ? Prisma.sql`AND file_path LIKE ${filePathPrefix + "%"}`
+    ? Prisma.sql`AND "filePath" LIKE ${filePathPrefix + "%"}`
     : Prisma.empty;
 
   try {
     const results = await prisma.$queryRaw<RetrievedChunk[]>`
       SELECT
-        id,
-        repo_id AS "repoId",
-        file_path AS "filePath",
-        content,
-        metadata,
-        embedding <=> ${vectorLiteral}::vector AS distance
-      FROM CodeChunk
-      WHERE repo_id = ${repoId}
+        "id",
+        "repoId",
+        "filePath",
+        "content",
+        "metadata",
+        "embedding" <=> ${vectorLiteral}::vector AS distance
+      FROM "CodeChunk"
+      WHERE "repoId" = ${repoId}
       ${pathFilter}
-      ORDER BY embedding <=> ${vectorLiteral}::vector ASC
+      ORDER BY "embedding" <=> ${vectorLiteral}::vector ASC
       LIMIT ${topK}
     `;
 
