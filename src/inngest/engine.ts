@@ -1,8 +1,9 @@
 import { inngest } from "./client.js";
 import { getDiffGraphWorkflow } from "../graph/workflow.js";
 import { prAnalyzed, repoIngestionReq } from "./client.js";
+import { type InngestFunction } from "inngest";
 
-export const analyzePullRequest = inngest.createFunction(
+const analyzePullRequest = inngest.createFunction(
   {
     id: "analyze-pull-request",
     name: "Analyze Pull Request",
@@ -38,7 +39,7 @@ export const analyzePullRequest = inngest.createFunction(
   }
 );
 
-export const ingestRepository = inngest.createFunction(
+const ingestRepository = inngest.createFunction(
     {
         id: 'ingest-repository',
         name: 'Ingest Repository',
@@ -61,4 +62,4 @@ export const ingestRepository = inngest.createFunction(
     }
 )
 
-export const functions = [analyzePullRequest, ingestRepository]
+export const functions: InngestFunction.Any[] = [analyzePullRequest, ingestRepository]

@@ -32,6 +32,7 @@ model CodeChunk {
   @@index([repoId, filePath], name: "idx_code_chunks_repo_file")
   @@index([metadata(ops: JsonbPathOps)], type: Gin, name: "idx_code_chunks_metadata")
   
+  @@index([embedding], name: "idx_code_chunks_embedding_hnsw")
 }
 
 enum PrReviewStatus {
