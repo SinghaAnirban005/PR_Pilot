@@ -26,6 +26,12 @@ model CodeChunk {
   updatedAt     DateTime    @updatedAt      @db.Timestamptz()
 
   contentHash   String    @db.Text
+
+  @@unique([repoId, filePath, contentHash], name: "uq_code_chunks_repo_file_hash")
+  @@index([repoId], name: "idx_code_chunks_repo_id")
+  @@index([repoId, filePath], name: "idx_code_chunks_repo_file")
+  @@index([metadata(ops: JsonbPathOps)], type: Gin, name: "idx_code_chunks_metadata")
+  
 }
 
 enum PrReviewStatus {
@@ -46,4 +52,5 @@ model PrReviewRun {
   createdAt     DateTime    @default(now())   @db.Timestamptz()
   completedAt   DateTime?    @db.Timestamptz()
 
+  @@index([repoId, prNumber], name: "idx_pr_review_runs_repo_pr")
 }
