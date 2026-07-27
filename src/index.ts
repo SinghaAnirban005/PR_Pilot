@@ -104,25 +104,23 @@ webhooks.onError((err: unknown) => {
     console.error('webhook error : ', err)
 })
 
-app.use('/api/v1/inngest', () => {
-    serveInngest({
-        client: inngest,
-        functions: functions
-    })
-})
+app.use('/api/inngest', serveInngest({
+  client: inngest,
+  functions: functions
+}));
 
-app.get('/api/v1/health', (req: Request, res: Response) => {
+app.get('/api/health', (req: Request, res: Response) => {
     return res.status(200).json({
         status: 'ok'
     })
 })
 
-app.use((err:unknown, req: Request, res: Response) => {
-    console.error("unhandled error ", err)
-    res.status(500).json({
-        message: 'internal server err'
-    })
-})
+// app.use((err:unknown, req: Request, res: Response) => {
+//     console.error("unhandled error ", err)
+//     return res.status(500).json({
+//         message: 'internal server err'
+//     })
+// })
 
 app.listen(env.PORT, () => {
     console.log('Server is live')

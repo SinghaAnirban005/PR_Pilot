@@ -2,6 +2,7 @@ import { prisma } from "../lib/client.js"
 import { Prisma } from "../../generated/prisma/client.js";
 import { env } from "../config/env.js";
 import type { CodeChunkInsert, RetrievedChunk } from "../types/index.js";
+import { createHash } from "crypto";
 
 export class VectorStoreError extends Error {
   constructor(
@@ -27,14 +28,15 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
       for (const chunk of chunks) {
         const vectorLiteral = toVectorLiteral(chunk.embedding);
         const metadataJson = JSON.stringify(chunk.metadata ?? {});
+        const contentHash = createHash("sha256").update(chunk.content).digest("hex");
 
         const rowCount = await tx.$executeRaw`
           INSERT INTO "CodeChunk" (
             "id", 
             "repoId", 
             "filePath", 
-            "content", 
-            "contentHash", 
+            "content",
+            "contentHash",  
             "embedding", 
             "metadata", 
             "updatedAt"
@@ -44,11 +46,12 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
             ${chunk.repoId},
             ${chunk.filePath},
             ${chunk.content},
+            ${contentHash},
             ${vectorLiteral}::vector,
             ${metadataJson}::jsonb,
             now()
           )
-          ON CONFLICT ON CONSTRAINT uq_code_chunks_repo_file_hash
+          ON CONFLICT ("repoId", "filePath", "contentHash")
           DO UPDATE SET
             "embedding" = EXCLUDED."embedding",
             "metadata" = EXCLUDED."metadata",
