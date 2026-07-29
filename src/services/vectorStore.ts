@@ -124,6 +124,35 @@ export async function deleteChunksForFile(repoId: string, filePath: string): Pro
   }
 }
 
+export async function deleteChunksForRepo(repoId: string): Promise<number> {
+  try {
+    const result = await prisma.codeChunk.deleteMany({
+      where: {
+        repoId,
+      },
+    });
+    return result.count;
+  } catch (err) {
+    throw new VectorStoreError("Failed to delete chunks for repo", err);
+  }
+}
+
+export async function hasIngestedRepo(repoId: string): Promise<boolean> {
+  try {
+    const chunk = await prisma.codeChunk.findFirst({
+      where: {
+        repoId,
+      },
+      select: {
+        id: true,
+      },
+    });
+    return chunk !== null;
+  } catch (err) {
+    throw new VectorStoreError("Failed to check repo ingestion status", err);
+  }
+}
+
 export async function closeVectorStore(): Promise<void> {
   await prisma.$disconnect();
 }
