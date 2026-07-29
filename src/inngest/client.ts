@@ -10,12 +10,26 @@ type repoIngest = {
       ref?: string | undefined;
 };
 
+type repoPush = {
+    repoId: string;
+    owner: string;
+    repo: string;
+    installationId: number;
+    ref: string;
+    changedFiles: string[];
+    removedFiles: string[];
+}
+
 export const prAnalyzed = eventType('github/pr.analyzed', {
     schema: staticSchema<PullRequestDetails>()
 })
 
 export const repoIngestionReq = eventType('github/repo.ingestion-requested', {
     schema: staticSchema<repoIngest>()
+})
+
+export const repoPushSync = eventType('github/repo.push-synced', {
+    schema: staticSchema<repoPush>()
 })
 
 export const inngest = new Inngest({
