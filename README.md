@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- Swap this for your actual logo, e.g. <img src="./assets/logo.svg" width="88" /> -->
-<img src="https://placehold.co/96x96/0A0A0A/FFFFFF?text=%E2%97%86" width="88" alt="DiffGraph logo" />
+<img width="1024" height="1024" alt="bunny" src="https://github.com/user-attachments/assets/0c224c36-99e5-4eed-a79b-48d6734694be" />
 
 # CommitBear
 
