@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="1024" height="1024" alt="bunny" src="https://github.com/user-attachments/assets/0c224c36-99e5-4eed-a79b-48d6734694be" />
+<img width="200" height="200" alt="bunny" src="https://github.com/user-attachments/assets/0c224c36-99e5-4eed-a79b-48d6734694be" />
 
 # CommitBear
 
@@ -43,48 +43,8 @@ No dashboards to check. No copy pasting diffs into a chat window. It just shows 
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    U["👤 Developer"] -->|opens / updates PR| GH["GitHub"]
-    GH -->|webhook| SRV["Webhook Gateway<br/>(Express)"]
+<img width="1168" height="836" alt="image" src="https://github.com/user-attachments/assets/547c844b-9de0-45e1-8a97-e08d633ba540" />
 
-    SRV -->|drop non-code diffs| FILTER{"Guardrail<br/>filter"}
-    FILTER -->|dispatch event| Q["Inngest<br/>(durable job queue)"]
-
-    subgraph AGENT["LangGraph Agent Workflow"]
-        direction TB
-        A["Extract Diff Node<br/>parse changed symbols"] --> B["Vector Retrieval Node<br/>fetch relevant context"]
-        B --> C["LLM Reasoning Node<br/>Groq · Llama 3.3 70B"]
-        C --> D{"Output Validation<br/>Node — Zod schema"}
-        D -->|invalid, retries left| C
-        D -->|invalid, retries exhausted| F["Fallback Node<br/>post error notice"]
-        D -->|valid| P["Post Review Node<br/>inline comments + summary"]
-    end
-
-    Q --> A
-    B <-->|cosine similarity search| VDB[("pgvector<br/>code_chunks")]
-    P -->|Octokit REST| GH
-    F -->|Octokit REST| GH
-    GH -->|review appears on PR| U
-
-    subgraph INGEST["Repo Onboarding & Sync"]
-        direction TB
-        I1["App installed"] --> I2["Full clone + AST chunk<br/>+ batch embed"]
-        I3["Push to default branch<br/>(incl. PR merges)"] --> I4["Incremental re-embed<br/>of changed files only"]
-    end
-
-    GH -.->|install / push events| INGEST
-    I2 -->|upsert| VDB
-    I4 -->|upsert| VDB
-    EMB["Hugging Face<br/>BAAI/bge-m3"] -.embeds.-> I2
-    EMB -.embeds.-> I4
-    EMB -.embeds.-> B
-
-    style AGENT fill:#0a0a0a,stroke:#333,color:#fff
-    style INGEST fill:#0a0a0a,stroke:#333,color:#fff
-    style VDB fill:#1c1c1c,stroke:#555,color:#fff
-    style Q fill:#1c1c1c,stroke:#555,color:#fff
-```
 
 <br />
 
