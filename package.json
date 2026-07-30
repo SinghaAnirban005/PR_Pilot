@@ -6,7 +6,7 @@
   "scripts": {
     "generate": "prisma generate",
     "build": "pnpm generate && tsc -p tsconfig.json || true",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
     "migrate": "node --loader ts-node/esm src/db/migrate.ts",
