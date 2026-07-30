@@ -167,7 +167,7 @@ export async function postReviewNode(
   const riskEmoji: Record<string, string> = { low: "🟢", medium: "🟡", high: "🔴" };
 
   const summaryBody = [
-    `### 🤖 DiffGraph Review — ${riskEmoji[review.overallRisk]} ${review.overallRisk.toUpperCase()} risk`,
+    `### 🤖 CommitBear Review — ${riskEmoji[review.overallRisk]} ${review.overallRisk.toUpperCase()} risk`,
     "",
     review.summary,
     "",
@@ -204,9 +204,9 @@ export async function fallbackNode(state: AgentState): Promise<Partial<AgentStat
   const { owner, repo, prNumber } = state.prDetails;
 
   const body = [
-    "### ⚠️ DiffGraph Review — automated analysis failed",
+    "### ⚠️ CommitBear Review — automated analysis failed",
     "",
-    `DiffGraph attempted ${state.retryCount} time(s) but could not produce a valid structured review for this PR.`,
+    `CommitBear attempted ${state.retryCount} time(s) but could not produce a valid structured review for this PR.`,
     "",
     "<details><summary>Last validation errors</summary>",
     "",
