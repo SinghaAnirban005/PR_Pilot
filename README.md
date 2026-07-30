@@ -11,7 +11,7 @@
 [![License](https://img.shields.io/badge/license-MIT-black)](#license)
 [![Made with LangGraph](https://img.shields.io/badge/agent-LangGraph-1c1c1c)](#)
 
-[Getting Started](#getting-started)· [Demo](https://youtu.be/Qntv8_adY-g) · [How It Works](#how-it-works) · [Architecture](#architecture) · [Roadmap](#roadmap)
+[Getting Started](#getting-started) · [Demo](https://youtu.be/Qntv8_adY-g) · [How It Works](#how-it-works) · [Architecture](#architecture)
 
 </div>
 
