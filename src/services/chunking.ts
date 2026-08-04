@@ -14,7 +14,6 @@ export const EXTENSION_TO_AST_LANG: Record<string, Lang> = {
   ".jsx": Lang.JavaScript,
 };
 
-// Extensions eligible for ingestion at all
 export const SUPPORTED_EXTENSIONS = new Set([
   ...Object.keys(EXTENSION_TO_AST_LANG),
   ".py",
@@ -73,7 +72,9 @@ function chunkFileWithAst(filePath: string, source: string, lang: Lang): RawChun
     }
   } catch (err) {
     console.warn(
-      `AST parse failed`, err);
+      `AST parse failed for ${filePath}, falling back to line chunks:`,
+      err,
+    );
   }
 
   if (chunks.length === 0 && source.trim()) {
@@ -83,10 +84,6 @@ function chunkFileWithAst(filePath: string, source: string, lang: Lang): RawChun
   return chunks;
 }
 
-/**
- * Generic fallback chunker for languages without a registered
- * ast-grep grammar (Python, Go, Rust, Java, ...)
- */
 function chunkByLines(filePath: string, source: string, languageLabel: string): RawChunk[] {
   const lines = source.split("\n");
   const chunks: RawChunk[] = [];
@@ -124,6 +121,80 @@ export function chunkFile(filePath: string, source: string, ext: string): RawChu
     : chunkByLines(filePath, source, ext.slice(1));
 }
 
+export const DOC_EXTENSIONS = new Set([".md", ".mdx"]);
+
+/** Paths considered documentation at all, independent of extension. */
+const DOC_PATH_HINTS = [/(^|\/)docs\//i, /(^|\/)adr\//i, /^readme\.md$/i, /^contributing\.md$/i];
+
+export function isDocPath(filePath: string): boolean {
+  if (!DOC_EXTENSIONS.has(pathExt(filePath))) return false;
+  return DOC_PATH_HINTS.some((re) => re.test(filePath)) || filePath.split("/").length === 1;
+}
+
+function pathExt(filePath: string): string {
+  const idx = filePath.lastIndexOf(".");
+  return idx === -1 ? "" : filePath.slice(idx);
+}
+
+export function classifyDocSourceType(filePath: string): "doc" | "adr" | "standard" {
+  const lower = filePath.toLowerCase();
+  if (/(^|\/)adr\//.test(lower) || /^\d{4}-.*\.md$/.test(lower.split("/").pop() ?? "")) {
+    return "adr";
+  }
+  if (/standards?/.test(lower) || /style-?guide/.test(lower) || /conventions?/.test(lower)) {
+    return "standard";
+  }
+  return "doc";
+}
+
+const MIN_HEADING_LEVEL = 2; // split on ## and deeper; keep # (title) attached to the first section
+
+export function chunkMarkdown(filePath: string): (source: string) => RawChunk[] {
+  return (source: string) => {
+    const lines = source.split("\n");
+    const chunks: RawChunk[] = [];
+
+    let currentHeading = "";
+    let buffer: string[] = [];
+    let startLine = 1;
+
+    const flush = (endLine: number) => {
+      const content = buffer.join("\n").trim();
+      if (content) {
+        chunks.push({
+          filePath,
+          content: content.slice(0, MAX_CHUNK_CHARS),
+          metadata: {
+            chunkType: "section",
+            ...(currentHeading ? { heading: currentHeading } : {}),
+            startLine,
+            endLine,
+          },
+        });
+      }
+      buffer = [];
+    };
+
+    lines.forEach((line, i) => {
+      const headingMatch = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (headingMatch && (headingMatch[1]?.length ?? 0) >= MIN_HEADING_LEVEL) {
+        flush(i);
+        currentHeading = headingMatch[2]?.trim() ?? "";
+        startLine = i + 1;
+      }
+      buffer.push(line);
+    });
+
+    flush(lines.length);
+
+    if (chunks.length === 0 && source.trim()) {
+      return chunkByLines(filePath, source, "markdown");
+    }
+
+    return chunks;
+  };
+}
+
 export function chunkArray<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -132,3 +203,8 @@ export function chunkArray<T>(arr: T[], size: number): T[][] {
 
 export const EMBEDDING_BATCH_SIZE = 32;
 export const MAX_FILE_BYTES = 500_000;
+
+export function isIngestableFile(filePath: string): boolean {
+  const ext = filePath.slice(filePath.lastIndexOf("."));
+  return SUPPORTED_EXTENSIONS.has(ext) || isDocPath(filePath);
+}

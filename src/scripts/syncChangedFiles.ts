@@ -4,9 +4,19 @@ import {
   upsertCodeChunks,
 } from "../services/vectorStore.js";
 import { getInstallationOctokit } from "../services/github.js";
-import { chunkArray, chunkFile, EMBEDDING_BATCH_SIZE, MAX_FILE_BYTES } from "../services/chunking.js";
+import {
+  chunkArray,
+  chunkFile,
+  chunkMarkdown,
+  classifyDocSourceType,
+  EMBEDDING_BATCH_SIZE,
+  isDocPath,
+  MAX_FILE_BYTES,
+  SUPPORTED_EXTENSIONS,
+  type RawChunk,
+} from "../services/chunking.js";
 import path from "node:path";
-import type { CodeChunkInsert } from "../types/index.js";
+import type { CodeChunkInsert, SourceType } from "../types/index.js";
 
 export interface SyncChangedFilesOptions {
   repoId: string;
@@ -41,7 +51,7 @@ async function fetchFileContent(
 
     return Buffer.from(data.content, data.encoding as BufferEncoding).toString("utf-8");
   } catch (err) {
-    console.warn(`error:`, err);
+    console.warn(`Could not fetch ${filePath}@${ref}, skipping:`, err);
     return null;
   }
 }
@@ -51,16 +61,28 @@ export async function syncChangedFiles(
 ): Promise<SyncChangedFilesResult> {
   const { repoId, owner, repo, installationId, ref, changedFiles, removedFiles } = options;
 
+  console.log(
+    `Syncing ${repoId}@${ref}: ${changedFiles.length} changed, ${removedFiles.length} removed`,
+  );
+
   for (const filePath of removedFiles) {
     await deleteChunksForFile(repoId, filePath);
   }
 
   const octokit = getInstallationOctokit(installationId);
-  const rawChunks: ReturnType<typeof chunkFile> = [];
+  const rawChunks: RawChunk[] = [];
   let filesSkipped = 0;
 
   for (const filePath of changedFiles) {
     const ext = path.extname(filePath);
+    const isCode = SUPPORTED_EXTENSIONS.has(ext);
+    const isDoc = isDocPath(filePath);
+
+    if (!isCode && !isDoc) {
+      filesSkipped++;
+      continue;
+    }
+
     const source = await fetchFileContent(octokit, owner, repo, filePath, ref);
 
     if (source === null) {
@@ -68,10 +90,9 @@ export async function syncChangedFiles(
       continue;
     }
 
-    // clearing the file's previous chunks before re inserting content changed, so the old chunk hashes no longer apply
     await deleteChunksForFile(repoId, filePath);
 
-    const fileChunks = chunkFile(filePath, source, ext);
+    const fileChunks = isDoc ? chunkMarkdown(filePath)(source) : chunkFile(filePath, source, ext);
     if (fileChunks.length === 0) {
       filesSkipped++;
       continue;
@@ -89,12 +110,16 @@ export async function syncChangedFiles(
       if (!embedding) {
         throw new Error(`Missing embedding for chunk index ${i} in batch`);
       }
+      const sourceType: SourceType = isDocPath(chunk.filePath)
+        ? classifyDocSourceType(chunk.filePath)
+        : "code";
       return {
         repoId,
         filePath: chunk.filePath,
         content: chunk.content,
         embedding,
         metadata: chunk.metadata,
+        sourceType,
       };
     });
 
@@ -102,6 +127,10 @@ export async function syncChangedFiles(
   }
 
   const filesUpdated = new Set(rawChunks.map((c) => c.filePath)).size;
+
+  console.log(
+    `Completed ${repoId}: ${filesUpdated} updated, ${removedFiles.length} removed, ${filesSkipped} skipped, ${chunksUpserted} chunk(s) upserted`,
+  );
 
   return {
     filesUpdated,

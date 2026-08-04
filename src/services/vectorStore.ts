@@ -1,7 +1,7 @@
 import { prisma } from "../lib/client.js"
 import { Prisma } from "../../generated/prisma/client.js";
 import { env } from "../config/env.js";
-import type { CodeChunkInsert, RetrievedChunk } from "../types/index.js";
+import type { CodeChunkInsert, RetrievedChunk, SourceType } from "../types/index.js";
 import { createHash } from "crypto";
 
 export class VectorStoreError extends Error {
@@ -18,7 +18,9 @@ function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(",")}]`;
 }
 
-export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<number> {
+export async function upsertCodeChunks(
+  chunks: CodeChunkInsert[],
+): Promise<number> {
   if (chunks.length === 0) return 0;
 
   try {
@@ -36,9 +38,10 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
             "repoId", 
             "filePath", 
             "content",
-            "contentHash",  
             "embedding", 
+            "contentHash",  
             "metadata", 
+            "sourceType",
             "updatedAt"
           )
           VALUES (
@@ -46,15 +49,17 @@ export async function upsertCodeChunks(chunks: CodeChunkInsert[]): Promise<numbe
             ${chunk.repoId},
             ${chunk.filePath},
             ${chunk.content},
-            ${contentHash},
             ${vectorLiteral}::vector,
+             ${contentHash},
             ${metadataJson}::jsonb,
+            ${chunk.sourceType},
             now()
           )
           ON CONFLICT ("repoId", "filePath", "contentHash")
           DO UPDATE SET
             "embedding" = EXCLUDED."embedding",
             "metadata" = EXCLUDED."metadata",
+            "sourceType" = EXCLUDED."sourceType",
             "updatedAt" = now()
         `;
 
@@ -76,18 +81,25 @@ export interface VectorSearchOptions {
   topK?: number;
   /** Optional file path prefix filter, e.g. to scope search to a subdirectory. */
   filePathPrefix?: string;
+  /** Optional source-type filter, e.g. to search only within 'doc' chunks. */
+  sourceTypes?: SourceType[];
 }
 
 export async function searchSimilarChunks(
   options: VectorSearchOptions,
 ): Promise<RetrievedChunk[]> {
-  const { repoId, queryEmbedding, filePathPrefix } = options;
+  const { repoId, queryEmbedding, filePathPrefix, sourceTypes } = options;
   const topK = options.topK ?? env.VECTOR_TOP_K;
   const vectorLiteral = toVectorLiteral(queryEmbedding);
 
   const pathFilter = filePathPrefix
     ? Prisma.sql`AND "filePath" LIKE ${filePathPrefix + "%"}`
     : Prisma.empty;
+
+  const sourceTypeFilter =
+    sourceTypes && sourceTypes.length > 0
+      ? Prisma.sql`AND "sourceType" = ANY(${sourceTypes}::text[])`
+      : Prisma.empty;
 
   try {
     const results = await prisma.$queryRaw<RetrievedChunk[]>`
@@ -97,10 +109,12 @@ export async function searchSimilarChunks(
         "filePath",
         "content",
         "metadata",
+        "sourceType",
         "embedding" <=> ${vectorLiteral}::vector AS distance
       FROM "CodeChunk"
       WHERE "repoId" = ${repoId}
       ${pathFilter}
+      ${sourceTypeFilter}
       ORDER BY "embedding" <=> ${vectorLiteral}::vector ASC
       LIMIT ${topK}
     `;
@@ -111,7 +125,40 @@ export async function searchSimilarChunks(
   }
 }
 
-export async function deleteChunksForFile(repoId: string, filePath: string): Promise<void> {
+export interface CategorizedSearchOptions {
+  repoId: string;
+  queryEmbedding: number[];
+  /** Map of source type -> how many chunks to retrieve for that category. */
+  topKByCategory: Partial<Record<SourceType, number>>;
+}
+
+export async function searchSimilarChunksByCategory(
+  options: CategorizedSearchOptions,
+): Promise<RetrievedChunk[]> {
+  const { repoId, queryEmbedding, topKByCategory } = options;
+
+  const entries = Object.entries(topKByCategory).filter(
+    (entry): entry is [SourceType, number] => (entry[1] ?? 0) > 0,
+  );
+
+  const resultsPerCategory = await Promise.all(
+    entries.map(([sourceType, topK]) =>
+      searchSimilarChunks({
+        repoId,
+        queryEmbedding,
+        topK,
+        sourceTypes: [sourceType],
+      }),
+    ),
+  );
+
+  return resultsPerCategory.flat();
+}
+
+export async function deleteChunksForFile(
+  repoId: string,
+  filePath: string,
+): Promise<void> {
   try {
     await prisma.codeChunk.deleteMany({
       where: {

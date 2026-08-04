@@ -10,12 +10,15 @@ import { getInstallationOctokit } from "../services/github.js";
 import {
   chunkArray,
   chunkFile,
+  chunkMarkdown,
+  classifyDocSourceType,
   EMBEDDING_BATCH_SIZE,
+  isDocPath,
   MAX_FILE_BYTES,
   SUPPORTED_EXTENSIONS,
   type RawChunk,
 } from "../services/chunking.js";
-import type { CodeChunkInsert } from "../types/index.js";
+import type { CodeChunkInsert, SourceType } from "../types/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +39,7 @@ export interface IngestRepoOptions {
   installationId: number;
   ref?: string | undefined;
 }
+
 function* walkFiles(dir: string, root: string): Generator<string> {
   for (const entry of readdirSync(dir)) {
     if (IGNORED_DIRS.has(entry)) continue;
@@ -66,20 +70,30 @@ async function cloneRepo(options: IngestRepoOptions): Promise<string> {
   return tmpDir;
 }
 
+/** Classifies a chunk's file path into a SourceType for storage/retrieval filtering. */
+function sourceTypeForFile(filePath: string): SourceType {
+  return isDocPath(filePath) ? classifyDocSourceType(filePath) : "code";
+}
+
 async function collectChunks(repoDir: string): Promise<RawChunk[]> {
   const allChunks: RawChunk[] = [];
 
   for (const relPath of walkFiles(repoDir, repoDir)) {
     const ext = path.extname(relPath);
-    if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+    const isCode = SUPPORTED_EXTENSIONS.has(ext);
+    const isDoc = isDocPath(relPath);
+    if (!isCode && !isDoc) continue;
 
     const absPath = path.join(repoDir, relPath);
     const source = await readFile(absPath, "utf-8").catch(() => null);
     if (source === null || source.length === 0) continue;
-
     if (source.length > MAX_FILE_BYTES) continue;
 
-    allChunks.push(...chunkFile(relPath, source, ext));
+    if (isDoc) {
+      allChunks.push(...chunkMarkdown(relPath)(source));
+    } else {
+      allChunks.push(...chunkFile(relPath, source, ext));
+    }
   }
 
   return allChunks;
@@ -93,7 +107,8 @@ export async function ingestRepo(
 
   try {
     const rawChunks = await collectChunks(repoDir);
-    // clearing the repo's existing chunks first so renamed/deleted files don't linger as orphans.
+    console.log(`Extracted ${rawChunks.length} chunk(s) from ${options.repoId}`);
+
     await deleteChunksForRepo(options.repoId);
 
     let totalUpserted = 0;
@@ -111,6 +126,7 @@ export async function ingestRepo(
           content: chunk.content,
           embedding,
           metadata: chunk.metadata,
+          sourceType: sourceTypeForFile(chunk.filePath),
         };
       });
 
@@ -118,6 +134,9 @@ export async function ingestRepo(
     }
 
     const filesProcessed = new Set(rawChunks.map((c) => c.filePath)).size;
+    console.log(
+      `Completed ${options.repoId}: ${filesProcessed} file(s), ${totalUpserted} chunk(s) upserted`,
+    );
 
     return { filesProcessed, chunksUpserted: totalUpserted };
   } finally {
@@ -125,7 +144,6 @@ export async function ingestRepo(
   }
 }
 
-// Allow direct CLI invocation: `npm run ingest -- owner repo installationId [ref]`
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [owner, repo, installationIdRaw, ref] = process.argv.slice(2);
   if (!owner || !repo || !installationIdRaw) {

@@ -1,43 +1,15 @@
-import express, { Request, Response, Express } from "express"
-import { env } from "./config/env.js"
-import { createNodeMiddleware, Webhooks } from "@octokit/webhooks"
-import { serve as serveInngest } from "inngest/express"; 
+import express, { type NextFunction, type Request, type Response ,type Express } from "express";
+import { Webhooks, createNodeMiddleware } from "@octokit/webhooks";
+import { serve as serveInngest } from "inngest/express";
+import { env } from "./config/env.js";
 import { inngest } from "./inngest/client.js";
 import { functions } from "./inngest/engine.js";
-import { shouldDropEvent, isNonCodeFile } from "./services/webhookFilter.js";
-import { PullRequestDetails } from "./types/index.js";
 import { getInstallationOctokit } from "./services/github.js";
+import { shouldDropEvent } from "./services/webhookFilter.js";
+import { isIngestableFile } from "./services/chunking.js";
+import type { PullRequestDetails } from "./types/index.js";
 
-const webhooks = new Webhooks({ secret: env.GITHUB_WEBHOOK_SECRET })
-
-const app: Express = express()
-
-app.use(createNodeMiddleware(webhooks, {path: '/api/github/webhooks'}))
-app.use(express.json())
-
-async function dispatchIngestionForRepos(
-  installationId: number,
-  repos: Array<{ owner: string; repo: string }>,
-): Promise<void> {
-  await Promise.all(
-    repos.map(({ owner, repo }) =>
-      inngest
-        .send({
-          name: "github/repo.ingestion-requested",
-          data: {
-            repoId: `${owner}/${repo}`,
-            owner,
-            repo,
-            installationId,
-          },
-        })
-        .then(() => console.log(`Dispatched ingestion for ${owner}/${repo}`))
-        .catch((err) =>
-          console.error(`Failed to dispatch ingestion for ${owner}/${repo}:`, err),
-        ),
-    ),
-  );
-}
+const webhooks = new Webhooks({ secret: env.GITHUB_WEBHOOK_SECRET });
 
 async function hydratePullRequestDetails(params: {
   owner: string;
@@ -85,44 +57,120 @@ async function hydratePullRequestDetails(params: {
 }
 
 webhooks.on(["pull_request.opened", "pull_request.synchronize"], async ({ payload }) => {
-    const installationId = payload.installation?.id
-    if(!installationId){
-        console.warn('pull request event missing installation id')
-        return 
+  const installationId = payload.installation?.id;
+  if (!installationId) {
+    console.warn("pull_request event missing installation id, skipping");
+    return;
+  }
+
+  const owner = payload.repository.owner.login;
+  const repo = payload.repository.name;
+  const prNumber = payload.pull_request.number;
+  const author = payload.pull_request.user?.login;
+
+  if (!author) {
+    console.warn(`PR #${prNumber} on ${owner}/${repo} has no author, skipping`);
+    return;
+  }
+
+  try {
+    const { details, changedFilePaths } = await hydratePullRequestDetails({
+      owner,
+      repo,
+      prNumber,
+      branch: payload.pull_request.head.ref,
+      baseBranch: payload.pull_request.base.ref,
+      author,
+      installationId,
+    });
+
+    if (shouldDropEvent(changedFilePaths)) {
+      console.log(
+        `[webhook] Dropping PR #${prNumber} on ${owner}/${repo}: no code-relevant file changes`,
+      );
+      return;
     }
 
-    const owner = payload.repository.owner.login
-    const repo  = payload.repository.name
-    const prNumber = payload.pull_request.number
-    const author = payload.pull_request.user?.login
+    await inngest.send({
+      name: "github/pr.analyzed",
+      data: details,
+    });
 
-    if(!author){
-        return
-    }
+    console.log(`[webhook] Dispatched github/pr.analyzed for ${owner}/${repo}#${prNumber}`);
+  } catch (err) {
+    console.error(`[webhook] Failed to process PR #${prNumber} on ${owner}/${repo}:`, err);
+  }
+});
 
-    try {
-        const { details, changedFilePaths } = await hydratePullRequestDetails({
+webhooks.onError((err) => {
+  console.error("[webhook] Signature verification or handler error:", err.message);
+});
+
+async function dispatchIngestionForRepos(
+  installationId: number,
+  repos: Array<{ owner: string; repo: string }>,
+): Promise<void> {
+  await Promise.all(
+    repos.map(({ owner, repo }) =>
+      inngest
+        .send({
+          name: "github/repo.ingestion-requested",
+          data: {
+            repoId: `${owner}/${repo}`,
             owner,
             repo,
-            prNumber,
-            branch: payload.pull_request.head.ref,
-            baseBranch: payload.pull_request.base.ref,
-            author,
-            installationId
+            installationId,
+          },
         })
+        .then(() => console.log(`[webhook] Dispatched ingestion for ${owner}/${repo}`))
+        .catch((err) =>
+          console.error(`[webhook] Failed to dispatch ingestion for ${owner}/${repo}:`, err),
+        ),
+    ),
+  );
+}
 
-        if(shouldDropEvent(changedFilePaths)){
-            return
-        }
+webhooks.on("installation.created", async ({ payload }) => {
+  const installationId = payload.installation.id;
+  const account = payload.installation.account;
+  const owner = account && "login" in account ? account.login : undefined;
+  const repos = payload.repositories ?? [];
 
-        await inngest.send({
-            name: "github/pr.analyzed",
-            data: details,
-        });
-    } catch (error) {
-        console.error('failed to process pr ', error)   
-    }
-})
+  if (!owner || repos.length === 0) {
+    console.warn(
+      `[webhook] installation.created for installation ${installationId} had no repositories to ingest`,
+    );
+    return;
+  }
+
+  console.log(
+    `[webhook] App installed on ${owner} (${repos.length} repo(s)), triggering ingestion`,
+  );
+
+  await dispatchIngestionForRepos(
+    installationId,
+    repos.map((r) => ({ owner: r.full_name.split("/")[0] ?? owner, repo: r.name })),
+  );
+});
+
+webhooks.on("installation_repositories.added", async ({ payload }) => {
+  const installationId = payload.installation.id;
+  const addedRepos = payload.repositories_added ?? [];
+
+  if (addedRepos.length === 0) return;
+
+  console.log(
+    `[webhook] ${addedRepos.length} repo(s) added to installation ${installationId}, triggering ingestion`,
+  );
+
+  await dispatchIngestionForRepos(
+    installationId,
+    addedRepos.map((r) => {
+      const [owner, repo] = r.full_name.split("/");
+      return { owner: owner ?? "", repo: repo ?? r.name };
+    }),
+  );
+});
 
 webhooks.on("push", async ({ payload }) => {
   const installationId = payload.installation?.id;
@@ -153,12 +201,17 @@ webhooks.on("push", async ({ payload }) => {
     modified.delete(f);
   }
 
-  const changedFiles = [...new Set([...added, ...modified])].filter((f) => !isNonCodeFile(f));
-  const removedFiles = [...removed].filter((f) => !isNonCodeFile(f));
+  const changedFiles = [...new Set([...added, ...modified])].filter(isIngestableFile);
+  const removedFiles = [...removed].filter(isIngestableFile);
 
   if (changedFiles.length === 0 && removedFiles.length === 0) {
+    console.log(`Push to ${owner}/${repo}#${pushedBranch}: no code-relevant changes`);
     return;
   }
+
+  console.log(
+    `Push to ${owner}/${repo}#${pushedBranch}: ${changedFiles.length} changed, ${removedFiles.length} removed, dispatching sync`,
+  );
 
   await inngest
     .send({
@@ -176,61 +229,33 @@ webhooks.on("push", async ({ payload }) => {
     .catch((err) => console.error(`Failed to dispatch push sync for ${owner}/${repo}:`, err));
 });
 
-webhooks.onError((err: unknown) => {
-    console.error('webhook error : ', err)
-})
+const app: Express = express();
 
-webhooks.on("installation.created", async ({ payload }) => {
-  const installationId = payload.installation.id;
-  const account = payload.installation.account;
-  const owner = account && "login" in account ? account.login : undefined;
-  const repos = payload.repositories ?? [];
+app.use(createNodeMiddleware(webhooks, { path: "/api/github/webhooks" }));
 
-  if (!owner || repos.length === 0) {
-    return;
-  }
+app.use(express.json());
 
-  await dispatchIngestionForRepos(
-    installationId,
-    repos.map((r) => ({ owner: r.full_name.split("/")[0] ?? owner, repo: r.name })),
-  );
+app.use(
+  "/api/inngest",
+  serveInngest({
+    client: inngest,
+    functions,
+  }),
+);
+
+app.get("/healthz", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "ok", service: "diffgraph" });
 });
 
-webhooks.on("installation_repositories.added", async ({ payload }) => {
-  const installationId = payload.installation.id;
-  const addedRepos = payload.repositories_added ?? [];
-
-  if (addedRepos.length === 0) return;
-
-  await dispatchIngestionForRepos(
-    installationId,
-    addedRepos.map((r) => {
-      const [owner, repo] = r.full_name.split("/");
-      return { owner: owner ?? "", repo: repo ?? r.name };
-    }),
-  );
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
-
-app.use('/api/inngest', serveInngest({
-  client: inngest,
-  functions: functions
-}));
-
-app.get('/api/health', (req: Request, res: Response) => {
-    return res.status(200).json({
-        status: 'ok'
-    })
-})
-
-// app.use((err:unknown, req: Request, res: Response) => {
-//     console.error("unhandled error ", err)
-//     return res.status(500).json({
-//         message: 'internal server err'
-//     })
-// })
 
 app.listen(env.PORT, () => {
-    console.log('Server is live')
-})
+  console.log(`   DiffGraph server listening on port ${env.PORT}`);
+  console.log(`   Webhook endpoint: POST /api/github/webhooks`);
+  console.log(`   Inngest endpoint: /api/inngest`);
+});
 
-export { app }
+export { app };
