@@ -12,24 +12,34 @@ datasource db {
   provider = "postgresql"
 }
 
+enum SourceType {
+  code
+  doc
+  adr
+  standard
+  requirement
+}
+
 model CodeChunk {
-  id            String    @id   @default(uuid())
-  repoId        String
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  repoId        String    
   filePath      String
-  content       String
+  content       String    @db.Text
 
   embedding     Unsupported("vector(1024)")
 
-  metadata      Json  @default("{}")
+  metadata      Json        @default("{}") @db.JsonB
+  sourceType    SourceType  @default(code)
 
-  createdAt     DateTime    @default(now())   @db.Timestamptz()
-  updatedAt     DateTime    @updatedAt      @db.Timestamptz()
+  createdAt DateTime @default(now()) @db.Timestamptz()
+  updatedAt DateTime @updatedAt      @db.Timestamptz()
 
-  contentHash   String    @db.Text
+  contentHash String @default(dbgenerated()) @db.Text
 
   @@unique([repoId, filePath, contentHash], name: "uq_code_chunks_repo_file_hash")
   @@index([repoId], name: "idx_code_chunks_repo_id")
   @@index([repoId, filePath], name: "idx_code_chunks_repo_file")
+  @@index([repoId, sourceType], name: "idx_code_chunks_repo_source_type")
   @@index([metadata(ops: JsonbPathOps)], type: Gin, name: "idx_code_chunks_metadata")
   
   @@index([embedding], name: "idx_code_chunks_embedding_hnsw")
@@ -42,16 +52,16 @@ enum PrReviewStatus {
 }
 
 model PrReviewRun {
-  id      String    @id   @default(uuid())
+  id      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   repoId  String
   prNumber  Int
   status    PrReviewStatus
   retryCount  Int   @default(0)
   
-  validationErrors  Json    @default("[]")
+  validationErrors  Json    @default("[]")  @db.JsonB
 
-  createdAt     DateTime    @default(now())   @db.Timestamptz()
-  completedAt   DateTime?    @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @db.Timestamptz()
+  completedAt DateTime? @db.Timestamptz()
 
   @@index([repoId, prNumber], name: "idx_pr_review_runs_repo_pr")
 }
