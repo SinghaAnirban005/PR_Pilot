@@ -64,6 +64,13 @@ No dashboards to check. No copy pasting diffs into a chat window. It just shows 
 
 <br />
 
+## AI Tools/models Used
+- Hugging Face Inference API (BAAI/bge-m3) for embeddings
+- Groq (llama-3.3-70b-versatile) for the actual review reasoning
+- Claude as pair programmer
+
+<br />
+
 ## Getting Started
 
 ```bash
